@@ -2,6 +2,14 @@ use std::{collections::HashSet, env, error::Error, fs};
 use colored::Colorize;
 use std::borrow::Cow;
 use strsim::levenshtein;
+use std::io::{stdin, stdout, Write};
+use termion::event::{Event, Key};
+use termion::input::TermRead;
+use termion::raw::IntoRawMode;
+use termion::screen::IntoAlternateScreen;
+use termion::{clear, cursor, terminal_size};
+ 
+
 
 pub struct Config {
     pub query: String,
@@ -67,36 +75,17 @@ impl Config {
 
 }
 
-
-pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
-    let contents = fs::read_to_string(&config.file_path)?;
-    let (res, found,scanned_lines,matched_words) = search(&contents, &config);
-
-    for (line, idx) in res.iter().zip(found.iter()) {
-        if config.line_number {
-       if !config.no_color {
-        let formatted_line = format!("| {:} |", idx + 1);  
-            println!("{} {}", formatted_line.black().bold(), line);   
-        } else {
-            let formatted_line = format!("| {:>3} |", idx + 1);  
-            println!("{} {}", formatted_line, line);   
-        }
-        } else {
-            println!("{}", line);
-        }
+fn conditional_lowercase<'a>(s: &'a str, ignore_case: bool) -> Cow<'a, str> {
+    if ignore_case {
+        Cow::Owned(s.to_lowercase()) 
+    } else {
+        Cow::Borrowed(s)  
     }
-
-    
-    if config.stats {
-        println!("Matching lines:{} ,Matching words: {matched_words}, Lines Scanned: {scanned_lines}",res.len());
-    }
-
-
-    Ok(())
 }
 
 
-// This function does the search and highlights the matches.
+
+
 pub fn search(contents: &str, config: &Config) -> (Vec<String>, Vec<usize>,i32,i32) {
     let query = conditional_lowercase(&config.query, config.ignore_case);
     let mut scanned_lines = 0;
@@ -147,18 +136,172 @@ pub fn search(contents: &str, config: &Config) -> (Vec<String>, Vec<usize>,i32,i
     (results, found_indexes,scanned_lines,matched_words)
 }
 
+pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
+    let contents = fs::read_to_string(&config.file_path)?;
+    let (res, found, scanned_lines, matched_words) = search(&contents, &config);
 
-fn conditional_lowercase<'a>(s: &'a str, ignore_case: bool) -> Cow<'a, str> {
-    if ignore_case {
-        Cow::Owned(s.to_lowercase()) 
-    } else {
-        Cow::Borrowed(s)  
+    if config.stats {
+        println!("Matching lines: {}, Matching words: {}, Lines Scanned: {}", 
+                 res.len(), matched_words, scanned_lines);
     }
+    
+    if res.is_empty() {
+        println!("No results found.");
+        return Ok(());
+    }
+    
+    // Use pagination for displaying results
+    paginate(&res, &found, &config)?;
+
+    Ok(())
 }
+
+ 
+
+pub fn paginate(
+    results: &[String],
+    indexes: &[usize],
+    config: &Config,
+) -> Result<(), Box<dyn Error>> {
+    let mut screen = stdout().into_raw_mode()?.into_alternate_screen()?;
+    
+    // Get terminal dimensions
+    let (width, height) = terminal_size()?;
+    let page_height = height.saturating_sub(3) as usize;  
+    
+    let mut current_offset = 0;
+    let total_lines = results.len();
+    
+    // Initial render
+    render_page(&mut screen, results, indexes, config, current_offset, page_height, width, total_lines)?;
+    
+    // Handle input events
+    let stdin = stdin();
+    for evt in stdin.events() {
+        match evt? {
+            // Exit on Escape or Ctrl+C
+            Event::Key(Key::Esc) | Event::Key(Key::Ctrl('c')) => break,
+            
+            // Scroll up
+            Event::Key(Key::Up) | Event::Key(Key::Char('k')) => {
+                if current_offset > 0 {
+                    current_offset -= 1;
+                }
+            },
+            
+            // Scroll down
+            Event::Key(Key::Down) | Event::Key(Key::Char('j')) | Event::Key(Key::Char('\n')) => {
+                if current_offset + page_height < total_lines {
+                    current_offset += 1;
+                }
+            },
+            
+            // Page up
+            Event::Key(Key::PageUp) => {
+                current_offset = current_offset.saturating_sub(page_height);
+            },
+            
+            // Page down
+            Event::Key(Key::PageDown) | Event::Key(Key::Char(' ')) => {
+                current_offset = (current_offset + page_height).min(total_lines.saturating_sub(page_height));
+            },
+            
+            // Home key - go to top
+            Event::Key(Key::Home) => {
+                current_offset = 0;
+            },
+            
+            // End key - go to bottom
+            Event::Key(Key::End) => {
+                current_offset = total_lines.saturating_sub(page_height);
+            },
+     
+            
+            _ => {} // Ignore other events
+        }
+        
+        // Re-render the page after each event
+        render_page(&mut screen, results, indexes, config, current_offset, page_height, width, total_lines)?;
+    }
+    
+    // Restore cursor before exiting
+    write!(screen, "{}", cursor::Show)?;
+    screen.flush()?;
+    
+    Ok(())
+}
+
+fn render_page<W: Write>(
+    screen: &mut W,
+    results: &[String],
+    indexes: &[usize],
+    config: &Config,
+    offset: usize,
+    page_height: usize,
+    width: u16,
+    total_lines: usize
+) -> Result<(), Box<dyn Error>> {
+    // Clear screen and hide cursor
+    write!(screen, "{}{}", clear::All, cursor::Hide)?;
+    
+    // Draw header
+    write!(
+        screen,
+        "{}↑/↓: Scroll | Space: Page Down | Home/End: Jump | ESC/Ctrl+C: Exit",
+        cursor::Goto(1, 1)
+    )?;
+    
+    // Draw separator line
+    write!(screen, "{}", cursor::Goto(1, 2))?;
+    for _ in 0..width {
+        write!(screen, "-")?;
+    }
+    
+    // Draw content
+    for (display_idx, content_idx) in (offset..offset + page_height).enumerate()
+        .take_while(|(_, idx)| *idx < total_lines)
+    {
+        let line = &results[content_idx];
+        let index = indexes[content_idx];
+        
+        write!(screen, "{}", cursor::Goto(1, display_idx as u16 + 3))?;
+        
+        if config.line_number {
+            let formatted_line = format!("| {:>3} |", index + 1);
+            if !config.no_color {
+                // Use string format for colored output since we can't use colored traits directly
+                let colored_line = format!("{}", formatted_line);
+                write!(screen, "{} {}", colored_line, line)?;
+            } else {
+                write!(screen, "{} {}", formatted_line, line)?;
+            }
+        } else {
+            write!(screen, "{}", line)?;
+        }
+    }
+    
+    // Draw footer with pagination info
+    let footer_pos = (page_height + 3) as u16;
+    write!(
+        screen,
+        "{}Page: {}/{} | Showing lines {}-{} of {}",
+        cursor::Goto(1, footer_pos),
+        offset / page_height + 1,
+        (total_lines + page_height - 1) / page_height,
+        offset + 1,
+        (offset + page_height).min(total_lines),
+        total_lines
+    )?;
+    
+    screen.flush()?;
+    Ok(())
+}
+
+
+
 
 #[cfg(test)]
 mod tests {
-    use std::os::linux::raw::stat;
 
     use super::*;
 
