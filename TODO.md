@@ -6,10 +6,9 @@ This is a feature roadmap for extending `minigrep` into a more powerful and inte
 
 ## 🔍 1. Highlight the Searched Word
 
-- [ ] Parse and highlight matched keywords using ANSI escape codes (e.g., colorize matches).
-- [ ] Ensure it works for multiple matches per line.
-- [ ] Add a `--no-color` flag to optionally disable highlight (for piping or plain-text output).
-- [ ] Consider terminal compatibility (Windows vs Unix).
+- [x] Parse and highlight matched keywords using ANSI escape codes (e.g., colorize matches).
+- [x] Ensure it works for multiple matches per line.
+- [x] Add a `--no-color` flag to optionally disable highlight (for piping or plain-text output).
 
 ### Notes:
 
