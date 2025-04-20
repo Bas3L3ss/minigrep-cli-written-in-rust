@@ -268,13 +268,7 @@ fn render_page<W: Write>(
         
         if config.line_number {
             let formatted_line = format!("| {:>3} |", index + 1);
-            if !config.no_color {
-                // Use string format for colored output since we can't use colored traits directly
-                let colored_line = format!("{}", formatted_line);
-                write!(screen, "{} {}", colored_line, line)?;
-            } else {
-                write!(screen, "{} {}", formatted_line, line)?;
-            }
+            write!(screen, "{} {}", formatted_line.black(), line)?;
         } else {
             write!(screen, "{}", line)?;
         }
