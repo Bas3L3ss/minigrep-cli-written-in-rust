@@ -9,6 +9,7 @@ pub struct Config {
     pub ignore_case: bool,
     pub no_color: bool,
     pub line_number: bool,
+    pub stats: bool,
 }
 
 
@@ -25,7 +26,7 @@ impl Config {
         flags.extend(env::vars().map(|(k, _)| k.to_uppercase()));  
 
         // more flags here
-        let allowed_flags: [&str; 3] = ["ignore-case", "no-color", "line-number"];
+        let allowed_flags: [&str; 4] = ["ignore-case", "no-color", "line-number","stats"];
         let mut cli_flags = HashSet::new();
 
         for arg in &args[3..] {
@@ -52,6 +53,7 @@ impl Config {
         let ignore_case = flags.contains("IGNORE_CASE") || cli_flags.contains("ignore-case");
         let no_color = flags.contains("NO_COLOR") || cli_flags.contains("no-color");
         let line_number = flags.contains("LINE_NUMBER") || cli_flags.contains("line-number");
+        let stats = flags.contains("STATS") || cli_flags.contains("stats");
 
         Ok(Config {
             query,
@@ -59,6 +61,7 @@ impl Config {
             ignore_case,
             no_color,
             line_number,
+            stats
         })
     }   
 
@@ -67,7 +70,7 @@ impl Config {
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let contents = fs::read_to_string(&config.file_path)?;
-    let (res, found) = search(&contents, &config);
+    let (res, found,scanned_lines,matched_words) = search(&contents, &config);
 
     for (line, idx) in res.iter().zip(found.iter()) {
         if config.line_number {
@@ -83,21 +86,29 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    
+    if config.stats {
+        println!("Matching lines:{} ,Matching words: {matched_words}, Lines Scanned: {scanned_lines}",res.len());
+    }
+
 
     Ok(())
 }
 
 
 // This function does the search and highlights the matches.
-pub fn search(contents: &str, config: &Config) -> (Vec<String>, Vec<usize>) {
+pub fn search(contents: &str, config: &Config) -> (Vec<String>, Vec<usize>,i32,i32) {
     let query = conditional_lowercase(&config.query, config.ignore_case);
-
+    let mut scanned_lines = 0;
+    let mut matched_words = 0;
     let mut found_indexes = Vec::new();
 
     let results: Vec<String> = contents
         .lines()
         .enumerate()
         .filter_map(|(index, line)| {
+            scanned_lines += 1;
+
             let haystack = conditional_lowercase(line, config.ignore_case);
 
             if haystack.contains(&*query) {
@@ -107,6 +118,9 @@ pub fn search(contents: &str, config: &Config) -> (Vec<String>, Vec<usize>) {
                     .zip(haystack.split_whitespace())
                     .map(|(original, lowered)| {
                         if let Some(pos) = lowered.find(&*query) {
+                            matched_words += 1;
+
+
                             let before = &original[..pos];
                             let matched = &original[pos..pos + query.len()];
                             let after = &original[pos + query.len()..];
@@ -122,7 +136,7 @@ pub fn search(contents: &str, config: &Config) -> (Vec<String>, Vec<usize>) {
                     })
                     .collect::<Vec<_>>()
                     .join(" ");
-
+                
                 Some(highlighted_line)
             } else {
                 None
@@ -130,7 +144,7 @@ pub fn search(contents: &str, config: &Config) -> (Vec<String>, Vec<usize>) {
         })
         .collect();
 
-    (results, found_indexes)
+    (results, found_indexes,scanned_lines,matched_words)
 }
 
 
@@ -144,6 +158,8 @@ fn conditional_lowercase<'a>(s: &'a str, ignore_case: bool) -> Cow<'a, str> {
 
 #[cfg(test)]
 mod tests {
+    use std::os::linux::raw::stat;
+
     use super::*;
 
     fn create_config(
@@ -151,6 +167,7 @@ mod tests {
         ignore_case: bool,
         no_color: bool,
         line_number: bool,
+        stats:bool
     ) -> Config {
         Config {
             query: query.to_string(),
@@ -158,18 +175,19 @@ mod tests {
             ignore_case,
             no_color,
             line_number,
+            stats
         }
     }
 
     #[test]
     fn one_result() {
-        let config = create_config("duct", false, true, false);
+        let config = create_config("duct", false, true, false,false);
         let contents = "\
 Rust:
 safe, fast, productive.
 Pick three.";
 
-        let (results, indexes) = search(contents, &config);
+        let (results, indexes,_,_) = search(contents, &config);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], "safe, fast, productive.");
@@ -178,14 +196,14 @@ Pick three.";
 
     #[test]
     fn case_insensitive() {
-        let config = create_config("rUsT", true, true, false);
+        let config = create_config("rUsT", true, true, false, false);
         let contents = "\
 Rust:
 safe, fast, productive.
 Pick three.
 Trust me.";
 
-        let (results, indexes) = search(contents, &config);
+        let (results, indexes,_,_) = search(contents, &config);
 
         assert_eq!(results, vec!["Rust:", "Trust me."]);
         assert_eq!(indexes, vec![0, 3]);
@@ -193,13 +211,13 @@ Trust me.";
 
     #[test]
     fn no_matches() {
-        let config = create_config("missing", false, true, false);
+        let config = create_config("missing", false, true, false, false);
         let contents = "\
 This text
 does not
 contain your word.";
 
-        let (results, indexes) = search(contents, &config);
+        let (results, indexes,_,_) = search(contents, &config);
 
         assert!(results.is_empty());
         assert!(indexes.is_empty());
@@ -207,20 +225,20 @@ contain your word.";
 
     #[test]
     fn highlight_disabled() {
-        let config = create_config("fast", false, true, false);
+        let config = create_config("fast", false, true, false, false);
         let contents = "safe, fast, productive.";
 
-        let (results, _) = search(contents, &config);
+        let (results, _,_,_) = search(contents, &config);
 
         assert_eq!(results[0], "safe, fast, productive.");
     }
 
     #[test]
     fn highlight_enabled() {
-        let config = create_config("fast", false, false, false);
+        let config = create_config("fast", false, false, false, false);
         let contents = "safe, fast, productive.";
 
-        let (results, _) = search(contents, &config);
+        let (results, _,_,_) = search(contents, &config);
 
         assert!(results[0].contains("\u{1b}")); // ANSI escape for color
         assert!(results[0].contains("fast")); // Still contains matched text
@@ -228,10 +246,10 @@ contain your word.";
 
     #[test]
     fn line_number_enabled() {
-        let config = create_config("safe", false, true, true);
+        let config = create_config("safe", false, true, true, false);
         let contents = "safe, fast, productive.";
 
-        let (results, indexes) = search(contents, &config);
+        let (results, indexes,_,_) = search(contents, &config);
         assert_eq!(indexes, vec![0]);
         assert_eq!(results[0], "safe, fast, productive.");
     }
