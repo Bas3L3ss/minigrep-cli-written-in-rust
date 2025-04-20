@@ -2,6 +2,7 @@ use std::error::Error;
 use std::{env, fs};
 use colored::Colorize;
 use std::borrow::Cow;
+use strsim::levenshtein;
 
 pub struct Config {
     pub query: String,
@@ -10,34 +11,48 @@ pub struct Config {
     pub no_color: bool,
 }
 
+
 impl Config {
-    pub fn build(args: &[String]) -> Result<Config, &'static str> {
+    pub fn build(args: &[String]) -> Result<Config, String> {
         if args.len() < 3 {
-            return Err("not enough arguments!");
+            return Err("Not enough arguments!".to_string());
         }
+
         let query = args[1].clone();
         let file_path = args[2].clone();
 
         let mut ignore_case = env::var("IGNORE_CASE").is_ok();
         let mut no_color = env::var("NO_COLOR").is_ok();
 
-            for arg in &args[3..] { // Skip the first 3 items (query, file_path, and the executable name)
-                match arg.as_str() {
-                    "--ignore-case" => ignore_case = true,
-                    "--no-color" => no_color = true,
-                    _ => (),
+        let allowed_flags = ["ignore-case", "no-color"];
+
+        for arg in &args[3..] {
+            match arg.as_str() {
+                "--ignore-case" => ignore_case = true,
+                "--no-color" => no_color = true,
+                unknown => {
+                    let suggestion = allowed_flags
+                        .iter()
+                        .min_by_key(|flag| levenshtein(unknown, flag))
+                        .unwrap();
+
+                    return Err(format!(
+                        "Unrecognized flag '{}'. Did you mean '{}'?",
+                        unknown, suggestion
+                    ));
                 }
             }
-
+        }
 
         Ok(Config {
             query,
             file_path,
             ignore_case,
-            no_color
+            no_color,
         })
     }
 }
+
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let contents = fs::read_to_string(&config.file_path)?;  
