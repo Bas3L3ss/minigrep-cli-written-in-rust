@@ -19,8 +19,8 @@ Use `\x1b[31m` for red text and `\x1b[0m` to reset color.
 ## 🔢 2. Show Line Numbers
 
 - [x] Prefix each matching line with its original line number.
-- [ ] Add a `--line-number` or `-n` flag to toggle line numbers.
-- [ ] Properly align output if line numbers go into hundreds/thousands.
+- [x] Add a `--line-number` or `-n` flag to toggle line numbers.
+- [x] Properly align output if line numbers go into hundreds/thousands.
 
 ---
 

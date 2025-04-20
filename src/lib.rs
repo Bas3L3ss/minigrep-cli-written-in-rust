@@ -141,44 +141,97 @@ fn conditional_lowercase<'a>(s: &'a str, ignore_case: bool) -> Cow<'a, str> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[test]
-//     fn one_result() {
-//         let config = Config {
-//             query: "duct".to_string(),
-//             file_path: "path".to_string(),
-//             ignore_case: false,
-//             no_color: true
+    fn create_config(
+        query: &str,
+        ignore_case: bool,
+        no_color: bool,
+        line_number: bool,
+    ) -> Config {
+        Config {
+            query: query.to_string(),
+            file_path: "fake_path.txt".to_string(),
+            ignore_case,
+            no_color,
+            line_number,
+        }
+    }
 
-//         };
-//         let contents = "\
-// Rust:
-// safe, fast, productive.
-// Pick three.";
+    #[test]
+    fn one_result() {
+        let config = create_config("duct", false, true, false);
+        let contents = "\
+Rust:
+safe, fast, productive.
+Pick three.";
 
-//         assert_eq!(vec!["safe, fast, productive."], search(contents, &config));
-//     }
+        let (results, indexes) = search(contents, &config);
 
-//     #[test]
-//     fn case_insensitive() {
-//         let config = Config {
-//             query: "rUsT".to_string(),
-//             file_path: "path".to_string(),
-//             ignore_case: true,
-//             no_color: true
-//         };
-//         let contents = "\
-// Rust:
-// safe, fast, productive.
-// Pick three.
-// Trust me.";
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], "safe, fast, productive.");
+        assert_eq!(indexes[0], 1); // line index (0-based)
+    }
 
-//         assert_eq!(
-//             vec!["Rust:", "Trust me."],
-//             search(contents, &config)
-//         );
-//     }
-// }
+    #[test]
+    fn case_insensitive() {
+        let config = create_config("rUsT", true, true, false);
+        let contents = "\
+Rust:
+safe, fast, productive.
+Pick three.
+Trust me.";
+
+        let (results, indexes) = search(contents, &config);
+
+        assert_eq!(results, vec!["Rust:", "Trust me."]);
+        assert_eq!(indexes, vec![0, 3]);
+    }
+
+    #[test]
+    fn no_matches() {
+        let config = create_config("missing", false, true, false);
+        let contents = "\
+This text
+does not
+contain your word.";
+
+        let (results, indexes) = search(contents, &config);
+
+        assert!(results.is_empty());
+        assert!(indexes.is_empty());
+    }
+
+    #[test]
+    fn highlight_disabled() {
+        let config = create_config("fast", false, true, false);
+        let contents = "safe, fast, productive.";
+
+        let (results, _) = search(contents, &config);
+
+        assert_eq!(results[0], "safe, fast, productive.");
+    }
+
+    #[test]
+    fn highlight_enabled() {
+        let config = create_config("fast", false, false, false);
+        let contents = "safe, fast, productive.";
+
+        let (results, _) = search(contents, &config);
+
+        assert!(results[0].contains("\u{1b}")); // ANSI escape for color
+        assert!(results[0].contains("fast")); // Still contains matched text
+    }
+
+    #[test]
+    fn line_number_enabled() {
+        let config = create_config("safe", false, true, true);
+        let contents = "safe, fast, productive.";
+
+        let (results, indexes) = search(contents, &config);
+        assert_eq!(indexes, vec![0]);
+        assert_eq!(results[0], "safe, fast, productive.");
+    }
+}
