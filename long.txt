@@ -998,3 +998,4 @@ Line 997: this is a test line with the word highlight
 Line 998: this is a test line with the word highlight
 Line 999: this is a test line with the word highlight
 Line 1000: this is a test line with the word highlight
+Line 1001: End of test file.
