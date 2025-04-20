@@ -1,4 +1,4 @@
-use std::{env, error::Error, fs};
+use std::{collections::HashSet, env, error::Error, fs};
 use colored::Colorize;
 use std::borrow::Cow;
 use strsim::levenshtein;
@@ -21,39 +21,47 @@ impl Config {
         let query = args[1].clone();
         let file_path = args[2].clone();
 
-        let mut ignore_case = env::var("IGNORE_CASE").is_ok();
-        let mut no_color = env::var("NO_COLOR").is_ok();
-        let mut line_number = env::var("LINE_NUMBER").is_ok();
+        let mut flags = HashSet::new();
+        flags.extend(env::vars().map(|(k, _)| k.to_uppercase()));  
 
-        let allowed_flags = ["ignore-case", "no-color","line-number"];
+        // more flags here
+        let allowed_flags: [&str; 3] = ["ignore-case", "no-color", "line-number"];
+        let mut cli_flags = HashSet::new();
 
         for arg in &args[3..] {
-            match arg.as_str() {
-                "--ignore-case" => ignore_case = true,
-                "--no-color" => no_color = true,
-                "--line-number" => line_number = true,
-                unknown => {
+            if let Some(flag) = arg.strip_prefix("--") {
+                if allowed_flags.contains(&flag) {
+                    cli_flags.insert(flag);
+                } else {
                     let suggestion = allowed_flags
                         .iter()
-                        .min_by_key(|flag| levenshtein(unknown, flag))
+                        .min_by_key(|known| levenshtein(flag, known))
                         .unwrap();
 
                     return Err(format!(
-                        "Unrecognized flag '{}'. Did you mean '{}'?",
-                        unknown, suggestion
+                        "Unrecognized flag '--{}'. Did you mean '--{}'?",
+                        flag, suggestion
                     ));
                 }
+            } else {
+                return Err(format!("Invalid flag format '{}'. Flags must start with '--'", arg));
             }
         }
+
+        // more flags here
+        let ignore_case = flags.contains("IGNORE_CASE") || cli_flags.contains("ignore-case");
+        let no_color = flags.contains("NO_COLOR") || cli_flags.contains("no-color");
+        let line_number = flags.contains("LINE_NUMBER") || cli_flags.contains("line-number");
 
         Ok(Config {
             query,
             file_path,
             ignore_case,
             no_color,
-            line_number
+            line_number,
         })
-    }
+    }   
+
 }
 
 
