@@ -71,11 +71,13 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
     for (line, idx) in res.iter().zip(found.iter()) {
         if config.line_number {
-            if !config.no_color {
-                println!("{}: {}", format!("line {}", idx + 1).blue().bold(), line);
-            } else {
-                println!("line {}: {}", idx + 1, line);
-            }
+       if !config.no_color {
+        let formatted_line = format!("| {:} |", idx + 1);  
+            println!("{} {}", formatted_line.black().bold(), line);   
+        } else {
+            let formatted_line = format!("| {:>3} |", idx + 1);  
+            println!("{} {}", formatted_line, line);   
+        }
         } else {
             println!("{}", line);
         }
@@ -99,8 +101,7 @@ pub fn search(contents: &str, config: &Config) -> (Vec<String>, Vec<usize>) {
             let haystack = conditional_lowercase(line, config.ignore_case);
 
             if haystack.contains(&*query) {
-                found_indexes.push(index); // Track matched line number
-
+                found_indexes.push(index);  
                 let highlighted_line = line
                     .split_whitespace()
                     .zip(haystack.split_whitespace())
