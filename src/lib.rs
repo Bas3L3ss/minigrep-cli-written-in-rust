@@ -281,7 +281,7 @@ fn render_page<W: Write>(
         "{}Page: {}/{} | Showing lines {}-{} of {}",
         cursor::Goto(1, footer_pos),
         offset / page_height + 1,
-        (total_lines + page_height - 1) / page_height,
+        (((total_lines + page_height - 1) / page_height) - 1).max(1) ,
         offset + 1,
         (offset + page_height).min(total_lines),
         total_lines
